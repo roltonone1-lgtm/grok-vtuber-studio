@@ -1,0 +1,16 @@
+{
+  "name": "grok-vtuber-studio",
+  "version": "1.0.0",
+  "description": "Grok VTuber Studio - Android app for Google Play",
+  "scripts": {
+    "build": "echo 'Use Capacitor to build'",
+    "cap:add": "npx cap add android",
+    "cap:sync": "npx cap sync",
+    "cap:open": "npx cap open android"
+  },
+  "dependencies": {
+    "@capacitor/android": "^6.0.0",
+    "@capacitor/core": "^6.0.0",
+    "@capacitor/cli": "^6.0.0"
+  }
+}

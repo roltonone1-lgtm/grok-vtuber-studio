@@ -1,0 +1,176 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>Grok VTuber Studio</title>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: system-ui, sans-serif; background: #0f0f1a; color: #eee; padding: 12px; }
+.app { max-width: 500px; margin: 0 auto; }
+h1 { text-align: center; color: #e94560; font-size: 22px; margin: 12px 0; }
+.panel { background: #1a1a2e; border-radius: 16px; padding: 14px; margin-bottom: 12px; }
+.panel h2 { font-size: 15px; color: #a0a0ff; margin-bottom: 10px; }
+#canvas { width: 100%; border-radius: 12px; background: #000; display: block; }
+#avatar { width: 100%; aspect-ratio: 3/4; background: #222; border-radius: 16px; display: flex; align-items: center; justify-content: center; font-size: 48px; transition: transform 0.08s; }
+.btn-row { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+button { flex: 1; min-width: 70px; padding: 12px; border-radius: 12px; border: none; background: #e94560; color: white; font-weight: 600; }
+button:disabled { opacity: 0.5; }
+.info { font-size: 12px; opacity: 0.75; margin-top: 8px; }
+input[type=range] { width: 100%; }
+</style>
+</head>
+<body>
+<div class="app">
+  <h1>Grok VTuber Studio</h1>
+
+  <div class="panel">
+    <h2>Камера + Риг лица</h2>
+    <video id="video" autoplay playsinline muted style="display:none;"></video>
+    <canvas id="canvas" width="480" height="360"></canvas>
+    <div class="info" id="info">Нажми кнопку</div>
+    <button id="startBtn">Запустить трекинг</button>
+  </div>
+
+  <div class="panel">
+    <h2>Аватар</h2>
+    <div id="avatar">🎭</div>
+    <div class="btn-row">
+      <button onclick="setAvatar('🎭')">Базовый</button>
+      <button onclick="setAvatar('👩')">Девушка</button>
+      <button onclick="setAvatar('👨')">Парень</button>
+      <button onclick="setAvatar('🐱')">Кошка</button>
+    </div>
+    <div class="info">Голова следует за наклоном лица</div>
+  </div>
+
+  <div class="panel">
+    <h2>Голос и тембр</h2>
+    <div>Pitch: <span id="pitchVal">0</span></div>
+    <input type="range" id="pitch" min="-12" max="12" value="0" step="0.5">
+    <div style="margin-top:8px;">Тембр: <span id="formantVal">1.0</span></div>
+    <input type="range" id="formant" min="0.7" max="1.5" value="1.0" step="0.05">
+    <button id="micBtn" style="margin-top:10px; width:100%;">Включить микрофон</button>
+    <div class="info" id="voiceStatus">Микрофон выключен</div>
+    <audio id="output" controls style="width:100%; margin-top:8px;"></audio>
+  </div>
+</div>
+
+<script type="module">
+import { FaceLandmarker, FilesetResolver } from 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14';
+
+const video = document.getElementById('video');
+const canvas = document.getElementById('canvas');
+const ctx = canvas.getContext('2d');
+const info = document.getElementById('info');
+const avatar = document.getElementById('avatar');
+const startBtn = document.getElementById('startBtn');
+
+let faceLandmarker, running = false, lastVideoTime = -1;
+
+async function init() {
+  try {
+    const vision = await FilesetResolver.forVisionTasks('https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/wasm');
+    faceLandmarker = await FaceLandmarker.createFromOptions(vision, {
+      baseOptions: {
+        modelAssetPath: 'https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task',
+        delegate: 'GPU'
+      },
+      runningMode: 'VIDEO',
+      numFaces: 1
+    });
+    info.textContent = 'Модель готова';
+  } catch(e) {
+    info.textContent = 'Ошибка загрузки модели';
+  }
+}
+
+function draw(lm) {
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+  if (!lm) return;
+  ctx.fillStyle = '#e94560';
+  lm.forEach((p, i) => {
+    if (i % 12 === 0) {
+      ctx.beginPath();
+      ctx.arc(p.x * canvas.width, p.y * canvas.height, 2, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  });
+}
+
+async function detect() {
+  if (!running || !faceLandmarker) return;
+  if (video.currentTime !== lastVideoTime) {
+    lastVideoTime = video.currentTime;
+    const res = faceLandmarker.detectForVideo(video, performance.now());
+    if (res.faceLandmarks?.[0]) {
+      const lm = res.faceLandmarks[0];
+      draw(lm);
+      const tilt = (lm[263].y - lm[33].y) * 40;
+      const pan = (lm[1].x - 0.5) * 30;
+      avatar.style.transform = `rotate(${tilt}deg) translateX(${pan}px)`;
+      info.textContent = 'Трекинг активен';
+    } else {
+      ctx.clearRect(0,0,canvas.width,canvas.height);
+      ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+      info.textContent = 'Лицо не найдено';
+    }
+  }
+  requestAnimationFrame(detect);
+}
+
+startBtn.onclick = async () => {
+  if (!faceLandmarker) await init();
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user' } });
+    video.srcObject = stream;
+    await video.play();
+    running = true;
+    startBtn.disabled = true;
+    startBtn.textContent = 'Трекинг запущен';
+    detect();
+  } catch(e) {
+    info.textContent = 'Нужен доступ к камере';
+  }
+};
+
+window.setAvatar = (emoji) => { avatar.textContent = emoji; };
+
+const pitch = document.getElementById('pitch');
+const formant = document.getElementById('formant');
+const pitchVal = document.getElementById('pitchVal');
+const formantVal = document.getElementById('formantVal');
+const micBtn = document.getElementById('micBtn');
+const voiceStatus = document.getElementById('voiceStatus');
+const output = document.getElementById('output');
+
+pitch.oninput = () => pitchVal.textContent = pitch.value;
+formant.oninput = () => formantVal.textContent = formant.value;
+
+micBtn.onclick = async () => {
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    const ctx = new AudioContext();
+    const src = ctx.createMediaStreamSource(stream);
+    const filter = ctx.createBiquadFilter();
+    filter.type = 'peaking';
+    const dest = ctx.createMediaStreamDestination();
+    src.connect(filter).connect(dest);
+    output.srcObject = dest.stream;
+    output.play();
+    voiceStatus.textContent = 'Микрофон включён';
+    micBtn.disabled = true;
+    setInterval(() => {
+      filter.frequency.value = 800 + parseFloat(pitch.value) * 70;
+      filter.gain.value = (parseFloat(formant.value) - 1) * 18;
+    }, 100);
+  } catch(e) {
+    voiceStatus.textContent = 'Нужен доступ к микрофону';
+  }
+};
+
+init();
+</script>
+</body>
+</html>

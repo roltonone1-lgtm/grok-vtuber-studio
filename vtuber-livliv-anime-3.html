@@ -1,0 +1,142 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>Grok VTuber Studio — Anime (LivLiv)</title>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: system-ui, -apple-system, sans-serif; background: #0f0f1a; color: #eee; padding: 12px; }
+.app { max-width: 520px; margin: 0 auto; }
+h1 { text-align: center; color: #e94560; font-size: 22px; margin: 10px 0 4px; }
+.sub { text-align: center; font-size: 13px; opacity: 0.7; margin-bottom: 12px; }
+.panel { background: #1a1a2e; border-radius: 16px; padding: 14px; margin-bottom: 12px; }
+.panel h2 { font-size: 15px; color: #a0a0ff; margin-bottom: 10px; }
+canvas { width: 100%; height: auto; border-radius: 16px; background: #111; display: block; aspect-ratio: 3/4; }
+.btn-row { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+button { flex: 1; min-width: 70px; padding: 12px 8px; border-radius: 12px; border: none; background: #e94560; color: white; font-weight: 600; font-size: 14px; }
+button:disabled { opacity: 0.5; }
+.info { font-size: 12px; opacity: 0.75; margin-top: 8px; }
+select, input[type=range] { width: 100%; margin: 4px 0 8px; }
+.credit { font-size: 11px; text-align: center; opacity: 0.5; margin-top: 16px; }
+</style>
+</head>
+<body>
+<div class="app">
+  <h1>Grok VTuber Studio</h1>
+  <div class="sub">Anime 2.5D • LivLiv Player • Трекинг + Липсинк</div>
+
+  <div class="panel">
+    <h2>Аватар (Anime)</h2>
+    <canvas id="stage" width="480" height="640"></canvas>
+    <div class="info" id="status">Загрузка персонажа…</div>
+    <select id="charSelect">
+      <option value="k01">Sena (k01)</option>
+      <option value="d01">Yui (d01)</option>
+      <option value="d03">Nana (d03)</option>
+      <option value="s01">Hana (s01)</option>
+      <option value="v05">Lilith (v05)</option>
+      <option value="char06">Aoi (char06)</option>
+    </select>
+    <div class="btn-row">
+      <button id="loadBtn">Загрузить выбранного</button>
+      <button id="trackBtn">Включить трекинг лица</button>
+      <button id="micBtn">Липсинк (микрофон)</button>
+      <button id="calibBtn" disabled>Калибровка</button>
+    </div>
+  </div>
+
+  <div class="panel">
+    <h2>Управление</h2>
+    <button onclick="player.setExpression('smile')">Улыбка</button>
+    <button onclick="player.setExpression('')">Сброс</button>
+    <button onclick="player.act('nod')">Кивок</button>
+    <div class="info">Рот и голова управляются трекингом / голосом</div>
+  </div>
+
+  <div class="credit">Characters: LivLiv (livliv.ai) • Player: @livliv-dev/player (Apache 2.0)<br>Личное некоммерческое использование. Укажи кредит.</div>
+</div>
+
+<script type="importmap">
+{
+  "imports": {
+    "@mediapipe/tasks-vision": "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@1.1.1/vision_bundle.mjs"
+  }
+}
+</script>
+
+<script type="module">
+import { Player } from 'https://cdn.jsdelivr.net/npm/@livliv-dev/player@0.3.0/+esm';
+import { startFaceTracking } from 'https://cdn.jsdelivr.net/npm/@livliv-dev/player@0.3.0/dist/tracking.js';
+import { createSpeech } from 'https://cdn.jsdelivr.net/npm/@livliv-dev/player@0.3.0/dist/voice.js';
+
+const canvas = document.getElementById('stage');
+const status = document.getElementById('status');
+const charSelect = document.getElementById('charSelect');
+const loadBtn = document.getElementById('loadBtn');
+const trackBtn = document.getElementById('trackBtn');
+const micBtn = document.getElementById('micBtn');
+
+let player;
+let speech;
+let tracking;
+
+async function initPlayer(charId = 'k01') {
+  status.textContent = 'Загрузка ' + charId + '…';
+  if (player) player.dispose();
+  player = new Player(canvas, { idle: true });
+  const url = `https://livliv-dev.github.io/player/characters/${charId}/`;
+  try {
+    await player.load(url);
+    status.textContent = 'Персонаж загружен. Можно включать трекинг.';
+    window.player = player;
+  } catch (e) {
+    status.textContent = 'Ошибка загрузки: ' + (e.message || e);
+    console.error(e);
+  }
+}
+
+loadBtn.onclick = () => initPlayer(charSelect.value);
+
+trackBtn.onclick = async () => {
+  if (!player) return alert('Сначала загрузи персонажа');
+  try {
+    status.textContent = 'Запуск трекинга…';
+    tracking = await startFaceTracking(player, {
+      smoothing: 0.75,   // более плавно (0 = быстро/дрожит, 1 = стабильно/медленнее)
+      follow: 0.4,       // реакция на приближение/отдаление
+      maxFps: 30,        // стабильный FPS
+      mirror: true
+    });
+    status.textContent = 'Трекинг активен. Смотри прямо и нажми «Калибровка»';
+    trackBtn.disabled = true;
+    document.getElementById('calibBtn').disabled = false;
+  } catch (e) {
+    status.textContent = 'Ошибка трекинга: ' + e.message;
+  }
+};
+
+document.getElementById('calibBtn').onclick = () => {
+  if (tracking && tracking.calibrate) {
+    tracking.calibrate();
+    status.textContent = 'Калибровка выполнена. Трекинг улучшен.';
+  }
+};
+
+micBtn.onclick = async () => {
+  if (!player) return alert('Сначала загрузи персонажа');
+  try {
+    speech = createSpeech(player);
+    await speech.unlock();
+    status.textContent = 'Микрофон включён — говори, рот будет двигаться';
+    micBtn.disabled = true;
+  } catch (e) {
+    status.textContent = 'Ошибка микрофона: ' + e.message;
+  }
+};
+
+// Auto-load first character
+initPlayer('k01');
+</script>
+</body>
+</html>

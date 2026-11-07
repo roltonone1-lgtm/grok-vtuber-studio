@@ -1,0 +1,107 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>Grok VTuber — Трекинг</title>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: system-ui, sans-serif; background: #0f0f1a; color: #eee; padding: 10px; }
+.app { max-width: 500px; margin: 0 auto; }
+h1 { text-align: center; color: #e94560; font-size: 20px; margin: 8px 0; }
+canvas { width: 100%; border-radius: 16px; background: #111; display: block; aspect-ratio: 3/4; }
+.panel { background: #1a1a2e; border-radius: 14px; padding: 12px; margin: 10px 0; }
+button { width: 100%; padding: 14px; border: none; border-radius: 12px; background: #e94560; color: white; font-weight: 600; font-size: 16px; margin: 6px 0; }
+#status { font-size: 13px; opacity: 0.8; margin-top: 8px; text-align: center; }
+.avatar { position: relative; width: 100%; aspect-ratio: 3/4; background: #111; border-radius: 16px; overflow: hidden; }
+.head { position: absolute; left: 50%; top: 45%; width: 55%; height: 50%; transform: translate(-50%, -50%); transition: transform 0.08s linear; }
+.head img { width: 100%; height: 100%; object-fit: contain; }
+</style>
+</head>
+<body>
+<div class="app">
+  <h1>Grok VTuber Studio</h1>
+  <div class="panel">
+    <div class="avatar" id="avatarBox">
+      <div class="head" id="head">
+        <img src="https://i.imgur.com/8Q5Q5Q5.png" alt="avatar" onerror="this.src='data:image/svg+xml;utf8,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 200 250%22><circle cx=%22100%22 cy=%2290%22 r=%2270%22 fill=%22%23f5d0c5%22/><circle cx=%2275%22 cy=%2280%22 r=%228%22 fill=%22%23333%22/><circle cx=%22125%22 cy=%2280%22 r=%228%22 fill=%22%23333%22/><path d=%22M80 120 Q100 140 120 120%22 stroke=%22%23333%22 stroke-width=%224%22 fill=%22none%22/></svg>'">
+      </div>
+    </div>
+    <button id="startBtn">Включить камеру и трекинг</button>
+    <div id="status">Нажми кнопку, разреши камеру</div>
+  </div>
+</div>
+
+<script type="module">
+import { FaceLandmarker, FilesetResolver } from 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/vision_bundle.mjs';
+
+const status = document.getElementById('status');
+const startBtn = document.getElementById('startBtn');
+const head = document.getElementById('head');
+
+let faceLandmarker;
+let video;
+
+async function init() {
+  status.textContent = 'Загрузка MediaPipe…';
+  const vision = await FilesetResolver.forVisionTasks(
+    'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/wasm'
+  );
+  faceLandmarker = await FaceLandmarker.createFromOptions(vision, {
+    baseOptions: {
+      modelAssetPath: 'https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task',
+      delegate: 'GPU'
+    },
+    runningMode: 'VIDEO',
+    numFaces: 1
+  });
+  status.textContent = 'Готово. Нажми кнопку';
+}
+
+startBtn.onclick = async () => {
+  try {
+    status.textContent = 'Запрос камеры…';
+    const stream = await navigator.mediaDevices.getUserMedia({
+      video: { facingMode: 'user', width: { ideal: 640 }, height: { ideal: 480 } }
+    });
+    video = document.createElement('video');
+    video.srcObject = stream;
+    video.playsInline = true;
+    await video.play();
+    startBtn.disabled = true;
+    status.textContent = 'Трекинг активен — двигай головой';
+    requestAnimationFrame(loop);
+  } catch (e) {
+    status.textContent = 'Ошибка камеры: ' + e.message;
+    alert('Разреши доступ к камере в браузере');
+  }
+};
+
+function loop() {
+  if (video && faceLandmarker && video.readyState >= 2) {
+    const results = faceLandmarker.detectForVideo(video, performance.now());
+    if (results.faceLandmarks && results.faceLandmarks.length > 0) {
+      const lm = results.faceLandmarks[0];
+      // Голова: наклон и поворот по ключевым точкам
+      const nose = lm[1];
+      const leftEye = lm[33];
+      const rightEye = lm[263];
+      const chin = lm[152];
+
+      const angleZ = Math.atan2(rightEye.y - leftEye.y, rightEye.x - leftEye.x) * (180 / Math.PI);
+      const angleY = (nose.x - 0.5) * 40; // поворот влево-вправо
+      const angleX = (chin.y - 0.6) * 30; // кивок
+
+      head.style.transform = `translate(-50%, -50%) rotateZ(${-angleZ * 0.7}deg) rotateY(${angleY}deg) rotateX(${angleX}deg)`;
+      status.textContent = 'Лицо найдено';
+    } else {
+      status.textContent = 'Лицо не видно';
+    }
+  }
+  requestAnimationFrame(loop);
+}
+
+init();
+</script>
+</body>
+</html>
